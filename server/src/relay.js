@@ -129,8 +129,13 @@ export async function executePay({ fromHash, recipient, amount, source = 'api' }
 
   ack(me, 'PAID_OK', res.txHash);
 
-  // Agent-to-agent loop: if the recipient maps to a device, feed its pet.
-  const target = deviceForRecipient({ ens, address });
+  // Agent-to-agent loop: if the recipient is one of our devices — by ENS, by a
+  // configured address, or by its own server-wallet address — make its pet react.
+  let target = deviceForRecipient({ ens, address });
+  if (!target) {
+    const lower = address.toLowerCase();
+    target = config.devices.find((d) => (walletFor(d.hash)?.address() || '').toLowerCase() === lower) || null;
+  }
   const peer = target && target.hash !== me.hash ? target : null;
   if (peer) publish(peer.hash, 'action', { act: 'FEED_OK', from: me.label, amount });
 
