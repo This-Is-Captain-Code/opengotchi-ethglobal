@@ -1,0 +1,14 @@
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# Secrets — server-side wallet keys live only here, never committed
+**/wallets.json
+*.key
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.log
