@@ -9,6 +9,7 @@ import { config, deviceByLabel } from './config.js';
 import { state, events, executePay } from './relay.js';
 import { publish } from './mqtt.js';
 import { walletFor } from './wallets.js';
+import { getAgentProfile } from './ens.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -63,8 +64,10 @@ export function startHttp() {
           let balance = null;
           try { wallet = w?.address?.() ?? null; } catch {}
           try { balance = w ? await w.balance() : null; } catch {}
+          let ensProfile = null;
+          try { ensProfile = await getAgentProfile(d.ens); } catch {}
           return {
-            label: d.label, hash: d.hash, ens: d.ens, wallet, balance,
+            label: d.label, hash: d.hash, ens: d.ens, wallet, balance, ensProfile,
             ...(state.get(d.hash) || { online: false }),
           };
         })

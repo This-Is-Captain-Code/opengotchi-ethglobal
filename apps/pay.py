@@ -15,14 +15,14 @@ This app needs NO firmware change — it rides the stock `mqtt` module:
 """
 import display, mqtt, keyboard, touch, system, time, gc
 
-# ── Contacts (edit me) — Sepolia ENS names that resolve to each device wallet.
-# These must be registered on Sepolia ENS (see server setup) and match the
-# DEVICE_*_ENS values in server/.env so the recipient's pet reacts. ──
+# ── Contacts (edit me) — ENS name OR 0x address the server pays.
+# Using stackchan's wallet 0x for now; swap to "og-stackchan.eth" once that
+# Sepolia ENS name is registered and points at this address. ──
 CONTACTS = [
-    ("stackchan", "og-stackchan.eth"),
-    # ("alice", "og-alice.eth"),
+    ("stackchan", "0x885F8b13396A4b2e917Eb11491EBC68CeB9F9369"),
+    # ("og-stackchan", "og-stackchan.eth"),
 ]
-AMOUNT = "0.001"   # amount per send; unit/token is decided server-side
+AMOUNT = "0.00001"   # small — wallets are funded with ~0.0001 testnet ETH
 
 # ── Colors / layout ──
 BK = display.color(0, 0, 0)

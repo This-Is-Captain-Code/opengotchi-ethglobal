@@ -32,3 +32,35 @@ export async function resolveRecipient(input) {
   if (!address) throw new Error(`ENS not found on ${config.ens.chain}: ${s}`);
   return { address, ens: s.toLowerCase() };
 }
+
+// Read a device-agent's ENS identity live: its address + ENSIP-26 agent records.
+// Cached briefly so the dashboard's 2s polling doesn't hammer the RPC.
+const _profileCache = new Map(); // name -> { at, profile }
+const PROFILE_TTL_MS = 60000;
+
+export async function getAgentProfile(name) {
+  if (!name) return null;
+  const hit = _profileCache.get(name);
+  if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.profile;
+
+  let profile = null;
+  try {
+    const c = ensClient();
+    const norm = normalize(name);
+    const [address, agentContext, endpointWeb, avatar, description] = await Promise.all([
+      c.getEnsAddress({ name: norm }).catch(() => null),
+      c.getEnsText({ name: norm, key: 'agent-context' }).catch(() => null),
+      c.getEnsText({ name: norm, key: 'agent-endpoint[web]' }).catch(() => null),
+      c.getEnsText({ name: norm, key: 'avatar' }).catch(() => null),
+      c.getEnsText({ name: norm, key: 'description' }).catch(() => null),
+    ]);
+    // Only a "registered" profile if something resolved.
+    if (address || agentContext || description) {
+      profile = { name, address, agentContext, endpointWeb, avatar, description };
+    }
+  } catch {
+    profile = null;
+  }
+  _profileCache.set(name, { at: Date.now(), profile });
+  return profile;
+}
