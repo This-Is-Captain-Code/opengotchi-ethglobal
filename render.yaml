@@ -31,7 +31,7 @@ services:
       - key: DEVICE_TDECK_LABEL
         value: tdeck
       - key: DEVICE_TDECK_ENS
-        value: tdeck.captaincode.eth
+        value: lilygo.captaincode.eth
       # ── Secrets / per-deploy — set these in the Render dashboard ──
       - key: DYNAMIC_ENVIRONMENT_ID
         sync: false
