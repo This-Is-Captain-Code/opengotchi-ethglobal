@@ -19,8 +19,7 @@ import display, mqtt, keyboard, touch, system, time, gc
 # Using stackchan's wallet 0x for now; swap to "og-stackchan.eth" once that
 # Sepolia ENS name is registered and points at this address. ──
 CONTACTS = [
-    ("stackchan", "0x885F8b13396A4b2e917Eb11491EBC68CeB9F9369"),
-    # ("og-stackchan", "og-stackchan.eth"),
+    ("stackchan", "stackchan.captaincode.eth"),
 ]
 AMOUNT = "0.00001"   # small — wallets are funded with ~0.0001 testnet ETH
 

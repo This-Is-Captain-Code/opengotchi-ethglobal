@@ -15,9 +15,9 @@ services:
       - key: WALLET_PROVIDER
         value: dynamic
       - key: ENS_CHAIN
-        value: sepolia
+        value: mainnet
       - key: ENS_RPC_URL
-        value: https://ethereum-sepolia-rpc.publicnode.com
+        value: https://ethereum-rpc.publicnode.com
       - key: BASE_SEPOLIA_RPC_URL
         value: https://sepolia.base.org
       - key: DEVICE_STACKCHAN_HASH
@@ -25,13 +25,13 @@ services:
       - key: DEVICE_STACKCHAN_LABEL
         value: stackchan
       - key: DEVICE_STACKCHAN_ENS
-        value: og-stackchan.eth
+        value: stackchan.captaincode.eth
       - key: DEVICE_TDECK_HASH
         value: bbef70c6ced36f3e01a429fe8d49c29e
       - key: DEVICE_TDECK_LABEL
         value: tdeck
       - key: DEVICE_TDECK_ENS
-        value: og-tdeck.eth
+        value: tdeck.captaincode.eth
       # ── Secrets / per-deploy — set these in the Render dashboard ──
       - key: DYNAMIC_ENVIRONMENT_ID
         sync: false
