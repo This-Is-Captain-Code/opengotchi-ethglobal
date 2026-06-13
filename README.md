@@ -58,6 +58,9 @@ npm install
 npm start
 ```
 
+**Full walkthrough** — building/flashing the T-Deck + stackchan firmware, uploading the
+microapps, getting device hashes, and verifying the demo end to end: see [BUILD.md](BUILD.md).
+
 ## Onchain
 
 The server-side wallets are scaffolded but **chain-agnostic for now** — the onchain
