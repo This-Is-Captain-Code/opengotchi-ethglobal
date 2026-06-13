@@ -47,7 +47,9 @@ Topics under `og/d/{HASH}/`:
 | `action` | subscribe | **publish** |
 | `fw/notify` | subscribe | (unused here) |
 
-The server bridges one device's `commands`/`telemetry` to the other device's `cmd`/`action`.
+The server forwards one device's `commands` to the other device's `cmd`. `status`/`telemetry`
+are recorded as liveness state (surfaced by `GET /devices`), not relayed; `action` is published
+only via the manual `POST /send` injector.
 
 ## Run
 

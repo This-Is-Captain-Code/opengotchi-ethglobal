@@ -8,11 +8,15 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "hash": "node src/identity.js"
+    "hash": "node src/identity.js",
+    "setup-wallets": "node scripts/setup_wallets.mjs"
   },
   "dependencies": {
+    "@dynamic-labs-wallet/core": "^1.0.38",
+    "@dynamic-labs-wallet/node-evm": "^1.0.38",
     "dotenv": "^16.4.5",
-    "mqtt": "^5.10.1"
+    "mqtt": "^5.10.1",
+    "viem": "^2.21.0"
   },
   "engines": {
     "node": ">=20"

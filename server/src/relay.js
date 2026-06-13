@@ -1,14 +1,24 @@
-// Device-to-device routing: turns one device's messages into the other's
-// commands/actions. This is the core of "facilitate communication between
-// the devices" (T-Deck <-> stackchan).
+// Device-to-device routing + the pay flow.
 //
-// Wallet hooks are stubbed in but inert until a chain is chosen (see wallets.js).
+//  - Forwards a device's `commands` to the other device's `cmd` (the base bridge).
+//  - `executePay()` is the shared pay path (device MQTT command AND dashboard HTTP):
+//    resolve ENS → send from the device's server-side wallet → ack the payer's
+//    `action` → if the recipient is a known device, make its pet react (FEED_OK).
 
-import { config, deviceByHash, otherDevice } from './config.js';
+import { config, deviceByHash, otherDevice, deviceForRecipient } from './config.js';
 import { walletFor } from './wallets.js';
+import { resolveRecipient } from './ens.js';
+import { publish } from './mqtt.js';
 
 // Liveness + last-seen state, surfaced by the HTTP layer.
 export const state = new Map(); // hash -> { label, online, lastSeen, lastTelemetry }
+
+// Recent activity for the dashboard (newest first, capped).
+export const events = [];
+function recordEvent(e) {
+  events.unshift({ ts: Date.now(), ...e });
+  if (events.length > 50) events.pop();
+}
 
 function touch(hash, patch) {
   const dev = deviceByHash.get(hash);
@@ -16,12 +26,6 @@ function touch(hash, patch) {
   state.set(hash, { ...prev, ...patch, lastSeen: Date.now() });
 }
 
-/**
- * Handle a device->broker message and decide what (if anything) to forward.
- * @param {{hash:string, leaf:string}} parsed
- * @param {Buffer} payload
- * @param {(hash:string, leaf:'cmd'|'action', obj:object)=>void} send  publish helper
- */
 export function onDeviceMessage(parsed, payload, send) {
   const { hash, leaf } = parsed;
   const me = deviceByHash.get(hash);
@@ -48,20 +52,24 @@ export function onDeviceMessage(parsed, payload, send) {
     }
 
     case 'commands': {
-      // Device-initiated command (e.g. {cmd:"feed"} or a teleop/obstruction event).
-      // Forward it to the OTHER device as a server command.
+      const cmdStr = typeof body.cmd === 'string' ? body.cmd : '';
+
+      // Pay command from a microapp: "pay:<ens-or-0x>:<amount>"
+      if (cmdStr.startsWith('pay:')) {
+        const p = cmdStr.split(':');
+        executePay({ fromHash: hash, recipient: (p[1] || '').trim(), amount: (p[2] || '0').trim(), source: 'device' });
+        break;
+      }
+      // Or a structured { pay: { to, amount } } command.
+      if (body.pay && body.pay.to) {
+        executePay({ fromHash: hash, recipient: body.pay.to, amount: String(body.pay.amount ?? '0'), source: 'device' });
+        break;
+      }
+
+      // Base bridge: forward any other device-initiated command to the peer.
       const peer = otherDevice(hash);
       console.log(`[relay] ${me.label} -> commands:`, body);
-      if (peer) {
-        send(peer.hash, 'cmd', {
-          id: `relay-${Date.now()}`,
-          from: me.label,
-          ...body,
-        });
-      }
-      // Wallet hook (inert until a chain is configured): a device command could
-      // trigger a server-side payout from this device's wallet to the peer's.
-      maybeSettle(me, body);
+      if (peer) send(peer.hash, 'cmd', { id: `relay-${Date.now()}`, from: me.label, ...body });
       break;
     }
 
@@ -75,13 +83,61 @@ export function onDeviceMessage(parsed, payload, send) {
   }
 }
 
-// Placeholder economic hook — does nothing onchain yet.
-async function maybeSettle(fromDevice, body) {
-  if (!body || !body.pay) return; // opt-in: only commands carrying a `pay` field
-  const peer = otherDevice(fromDevice.hash);
-  if (!peer) return;
-  const w = walletFor(fromDevice.hash);
-  if (!w) return;
-  const res = await w.pay(peer.label, body.pay.amount, body.pay.memo);
-  console.log(`[relay] settle ${fromDevice.label}->${peer.label}:`, res);
+function ack(me, r, value) {
+  if (r === 'PAID_OK') publish(me.hash, 'action', { r, tx: value });
+  else publish(me.hash, 'action', { r, e: String(value).slice(0, 28) });
+}
+
+/**
+ * Resolve a recipient, pay from a device's wallet, ack the payer, react on the
+ * recipient device, and record the event. Shared by the device + dashboard paths.
+ * @returns {Promise<{ok:boolean, txHash?:string, error?:string, address?:string}>}
+ */
+export async function executePay({ fromHash, recipient, amount, source = 'api' }) {
+  const me = deviceByHash.get(fromHash);
+  if (!me) return { ok: false, error: 'unknown device' };
+  recipient = (recipient || '').trim();
+  amount = String(amount ?? '0').trim();
+  if (!recipient) {
+    ack(me, 'PAID_ERR', 'no recipient');
+    return { ok: false, error: 'no recipient' };
+  }
+
+  let address, ens;
+  try {
+    ({ address, ens } = await resolveRecipient(recipient));
+  } catch (e) {
+    ack(me, 'PAID_ERR', e.message);
+    recordEvent({ type: 'pay', source, from: me.label, to: recipient, ok: false, error: e.message });
+    return { ok: false, error: e.message };
+  }
+
+  const wallet = walletFor(fromHash);
+  if (!wallet) {
+    ack(me, 'PAID_ERR', 'no wallet');
+    return { ok: false, error: 'no wallet' };
+  }
+
+  console.log(`[pay] (${source}) ${me.label} -> ${recipient} (${address}) amount=${amount}`);
+  const res = await wallet.pay(address, amount, `pay from ${me.label}`);
+
+  if (!res.ok) {
+    ack(me, 'PAID_ERR', res.error || 'pay failed');
+    recordEvent({ type: 'pay', source, from: me.label, to: recipient, address, amount, ok: false, error: res.error });
+    return res;
+  }
+
+  ack(me, 'PAID_OK', res.txHash);
+
+  // Agent-to-agent loop: if the recipient maps to a device, feed its pet.
+  const target = deviceForRecipient({ ens, address });
+  const peer = target && target.hash !== me.hash ? target : null;
+  if (peer) publish(peer.hash, 'action', { act: 'FEED_OK', from: me.label, amount });
+
+  recordEvent({
+    type: 'pay', source, from: me.label, to: recipient, address, amount,
+    ok: true, tx: res.txHash, reacted: peer ? peer.label : null,
+  });
+  console.log(`[pay] ${me.label} PAID ${amount} -> ${recipient} tx=${res.txHash}${peer ? ` (reacted: ${peer.label})` : ''}`);
+  return { ...res, address };
 }

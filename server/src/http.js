@@ -1,16 +1,20 @@
-// Minimal HTTP layer (Node built-in http — no framework).
-// Exposes health, device state, and a manual command/pay injector for demos.
+// HTTP layer (Node built-in http — no framework).
+// Serves the dashboard + JSON state, and lets judges trigger a pay from the browser.
 
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { config, deviceByLabel } from './config.js';
-import { state } from './relay.js';
+import { state, events, executePay } from './relay.js';
 import { publish } from './mqtt.js';
 import { walletFor } from './wallets.js';
 
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+
 function json(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'content-type': 'application/json' });
-  res.end(body);
+  res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+  res.end(JSON.stringify(obj));
 }
 
 async function readBody(req) {
@@ -34,12 +38,41 @@ export function startHttp() {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${config.port}`);
 
-    // GET /health
     if (req.method === 'GET' && url.pathname === '/health') {
       return json(res, 200, { ok: true, devices: config.devices.length });
     }
 
-    // GET /devices — config + live state
+    // GET / — the dashboard
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+      try {
+        const html = await readFile(join(PUBLIC_DIR, 'index.html'));
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch {
+        json(res, 404, { error: 'dashboard not found' });
+      }
+      return;
+    }
+
+    // GET /state — devices (with wallet address + balance) + recent events
+    if (req.method === 'GET' && url.pathname === '/state') {
+      const devices = await Promise.all(
+        config.devices.map(async (d) => {
+          const w = walletFor(d.hash);
+          let wallet = null;
+          let balance = null;
+          try { wallet = w?.address?.() ?? null; } catch {}
+          try { balance = w ? await w.balance() : null; } catch {}
+          return {
+            label: d.label, hash: d.hash, ens: d.ens, wallet, balance,
+            ...(state.get(d.hash) || { online: false }),
+          };
+        })
+      );
+      return json(res, 200, { broker: config.brokerUrl, walletProvider: config.walletProvider, devices, events });
+    }
+
+    // GET /devices — config + live state (legacy)
     if (req.method === 'GET' && url.pathname === '/devices') {
       const out = config.devices.map((d) => ({
         ...d,
@@ -49,8 +82,7 @@ export function startHttp() {
       return json(res, 200, out);
     }
 
-    // POST /send  { to: "<label|hash>", leaf: "cmd"|"action", payload: {...} }
-    // Manually inject a downlink — handy for demoing without a second device.
+    // POST /send  { to, leaf, payload } — manual downlink
     if (req.method === 'POST' && url.pathname === '/send') {
       const body = await readBody(req);
       const hash = resolveHash(body.to);
@@ -60,21 +92,20 @@ export function startHttp() {
       return json(res, 200, { ok: true, to: body.to, leaf });
     }
 
-    // POST /pay  { from, to, amount, memo } — exercises the wallet scaffold.
+    // POST /pay  { from, to, amount } — full pay flow (ENS resolve + transfer + reaction)
     if (req.method === 'POST' && url.pathname === '/pay') {
       const body = await readBody(req);
       const fromHash = resolveHash(body.from);
-      const w = fromHash && walletFor(fromHash);
-      if (!w) return json(res, 400, { error: 'unknown device "from"' });
-      const result = await w.pay(body.to, body.amount, body.memo);
-      return json(res, 200, result);
+      if (!fromHash) return json(res, 400, { error: 'unknown device "from"' });
+      const result = await executePay({
+        fromHash, recipient: body.to, amount: String(body.amount ?? '0'), source: 'dashboard',
+      });
+      return json(res, result.ok ? 200 : 400, result);
     }
 
     json(res, 404, { error: 'not found' });
   });
 
-  server.listen(config.port, () => {
-    console.log(`[http] listening on :${config.port}`);
-  });
+  server.listen(config.port, () => console.log(`[http] listening on :${config.port}`));
   return server;
 }

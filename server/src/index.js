@@ -16,6 +16,20 @@ console.log(
 startMqtt();
 startHttp();
 
+// First-boot helper for ephemeral hosts (no shell): if dynamic + no creds yet,
+// set AUTO_CREATE_WALLETS=true once to create the wallets and log a WALLETS_JSON
+// blob to copy into an env var (then remove the flag and redeploy).
+if (config.walletProvider === 'dynamic' && process.env.AUTO_CREATE_WALLETS === 'true') {
+  import('./dynamic.js')
+    .then(({ createMissingWallets }) => createMissingWallets(config.devices))
+    .then((s) => {
+      console.log('\n=== WALLETS READY — copy the next line into the WALLETS_JSON env var, then remove AUTO_CREATE_WALLETS and redeploy ===');
+      console.log('WALLETS_JSON=' + JSON.stringify(s));
+      for (const d of config.devices) console.log(`  ${d.label}: ${s[d.hash]?.walletMetadata?.accountAddress}`);
+    })
+    .catch((e) => console.error('[boot] wallet auto-create failed:', e.message));
+}
+
 // Graceful shutdown
 function shutdown() {
   console.log('\n[shutdown] closing...');

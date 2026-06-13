@@ -1,0 +1,45 @@
+# Render blueprint for the opengotchi-ethglobal MQTT app server.
+# Non-secret config is here; secrets (sync:false) are set in the Render dashboard.
+services:
+  - type: web
+    name: opengotchi-server
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: BROKER_URL
+        value: mqtt://broker.emqx.io:1883
+      - key: WALLET_PROVIDER
+        value: dynamic
+      - key: ENS_CHAIN
+        value: sepolia
+      - key: ENS_RPC_URL
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: BASE_SEPOLIA_RPC_URL
+        value: https://sepolia.base.org
+      - key: DEVICE_STACKCHAN_HASH
+        value: df1ca8bb8271ab6d751e6d520e1c8ec3
+      - key: DEVICE_STACKCHAN_LABEL
+        value: stackchan
+      - key: DEVICE_STACKCHAN_ENS
+        value: og-stackchan.eth
+      - key: DEVICE_TDECK_HASH
+        value: bbef70c6ced36f3e01a429fe8d49c29e
+      - key: DEVICE_TDECK_LABEL
+        value: tdeck
+      - key: DEVICE_TDECK_ENS
+        value: og-tdeck.eth
+      # ── Secrets / per-deploy — set these in the Render dashboard ──
+      - key: DYNAMIC_ENVIRONMENT_ID
+        sync: false
+      - key: DYNAMIC_AUTH_TOKEN
+        sync: false
+      - key: WALLET_PASSWORD
+        sync: false
+      - key: WALLETS_JSON
+        sync: false
+      - key: AUTO_CREATE_WALLETS
+        sync: false

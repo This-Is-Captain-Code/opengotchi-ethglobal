@@ -1,16 +1,19 @@
-// Server-side wallet per device — chain-agnostic scaffold.
+// Server-side wallet per device — pluggable provider behind one interface.
 //
-// The onchain mechanism is deliberately deferred. `WALLET_PROVIDER=none`
-// gives an in-memory no-op wallet so the comms layer can run today; when we
-// pick a chain we add an `evm` provider (e.g. viem) behind this same
-// interface without touching mqtt.js / relay.js.
+//   wallet.address()             -> string | null
+//   wallet.pay(to, amount, memo) -> Promise<{ ok, txHash?, error? }>
+//   wallet.balance()             -> Promise<string>
 //
-// Interface every provider implements:
-//   wallet.address()            -> string | null
-//   wallet.pay(to, amount, memo)-> Promise<{ ok, txHash?, error? }>
-//   wallet.balance()            -> Promise<string>
+// Providers:
+//   none    — inert no-op (logs intent only). Default.
+//   mock    — simulates a successful transfer with a random tx hash, so the full
+//             device -> server -> onchain -> peer-reaction loop is demoable today
+//             without any chain/SDK wired. Swap to `dynamic` for real transfers.
+//   dynamic — (TODO) Dynamic server wallets on Base Sepolia.
 
 import { config } from './config.js';
+import { randomBytes } from 'node:crypto';
+import { dynamicWallet } from './dynamic.js';
 
 function noopWallet(device) {
   return {
@@ -23,7 +26,6 @@ function noopWallet(device) {
       return '0';
     },
     async pay(to, amount, memo) {
-      // No chain wired yet — log intent so the relay/demo flow is observable.
       console.log(
         `[wallet:${device.label}] (no-op) would pay ${amount} to ${to}` +
           (memo ? ` — "${memo}"` : '')
@@ -33,9 +35,35 @@ function noopWallet(device) {
   };
 }
 
-// Future: import and branch here on config.walletProvider === 'evm'.
+function mockWallet(device) {
+  // Deterministic, valid-looking 0x address from the device hash.
+  const addr = ('0x' + device.hash.padEnd(40, '0')).slice(0, 42);
+  return {
+    provider: 'mock',
+    device: device.label,
+    address() {
+      return addr;
+    },
+    async balance() {
+      return '1.0';
+    },
+    async pay(to, amount, memo) {
+      const txHash = '0x' + randomBytes(32).toString('hex');
+      console.log(
+        `[wallet:${device.label}] (mock) paid ${amount} to ${to} tx=${txHash}` +
+          (memo ? ` — "${memo}"` : '')
+      );
+      return { ok: true, txHash };
+    },
+  };
+}
+
 function makeWallet(device) {
   switch (config.walletProvider) {
+    case 'mock':
+      return mockWallet(device);
+    case 'dynamic':
+      return dynamicWallet(device); // Dynamic server wallet on Base Sepolia
     case 'none':
     default:
       return noopWallet(device);
@@ -43,9 +71,7 @@ function makeWallet(device) {
 }
 
 // One wallet per device, keyed by hash.
-export const wallets = new Map(
-  config.devices.map((d) => [d.hash, makeWallet(d)])
-);
+export const wallets = new Map(config.devices.map((d) => [d.hash, makeWallet(d)]));
 
 export function walletFor(hash) {
   return wallets.get(hash) || null;
