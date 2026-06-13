@@ -47,16 +47,17 @@ export async function getAgentProfile(name) {
   try {
     const c = ensClient();
     const norm = normalize(name);
-    const [address, agentContext, endpointWeb, avatar, description] = await Promise.all([
+    const [address, agentContext, endpointWeb, urlRec, avatar, description] = await Promise.all([
       c.getEnsAddress({ name: norm }).catch(() => null),
       c.getEnsText({ name: norm, key: 'agent-context' }).catch(() => null),
       c.getEnsText({ name: norm, key: 'agent-endpoint[web]' }).catch(() => null),
+      c.getEnsText({ name: norm, key: 'url' }).catch(() => null), // fallback if the app UI rejects bracketed keys
       c.getEnsText({ name: norm, key: 'avatar' }).catch(() => null),
       c.getEnsText({ name: norm, key: 'description' }).catch(() => null),
     ]);
     // Only a "registered" profile if something resolved.
     if (address || agentContext || description) {
-      profile = { name, address, agentContext, endpointWeb, avatar, description };
+      profile = { name, address, agentContext, endpointWeb: endpointWeb || urlRec, avatar, description };
     }
   } catch {
     profile = null;
