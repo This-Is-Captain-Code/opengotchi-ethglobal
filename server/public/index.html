@@ -167,8 +167,13 @@ setInterval(refresh, 2000);
 <script type="module">
 // Blink deposit — passkey-funded USDC. The SDK POSTs our /blink/sign signer,
 // then opens Blink's hosted iframe so the user completes the deposit by passkey.
-const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
-const CHAIN_ID = 8453; // Base mainnet
+// Destination chain/token follow the Blink env: testnet (Base Sepolia) in sandbox,
+// Base mainnet in production. Sandbox only supports testnets, so 8453 would be rejected.
+const TARGETS = {
+  production: { chainId: 8453,  token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' }, // Base mainnet USDC
+  sandbox:    { chainId: 84532, token: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' }, // Base Sepolia USDC
+};
+const depTarget = () => TARGETS[(window.__og && window.__og.blink && window.__og.blink.environment) === 'sandbox' ? 'sandbox' : 'production'];
 let deposit = null;    // lazily created on first use (SDK loaded from CDN)
 let displayMessage = (e) => (e && e.message ? e.message : String(e));
 
@@ -208,9 +213,10 @@ if (depForm) depForm.addEventListener('submit', async (ev) => {
   btn.disabled = true; out.className = 'result muted'; out.textContent = 'opening Blink…';
   try {
     const d = await getDeposit();
+    const t = depTarget();
     // reference/metadata let us correlate the deposit back to a specific pet.
     await d.requestDeposit({
-      amount, chainId: CHAIN_ID, address, token: USDC_BASE, callbackScheme: null,
+      amount, chainId: t.chainId, address, token: t.token, callbackScheme: null,
       reference: 'fund-' + label, metadata: { device: label, app: 'opengotchi' },
     });
     // success/failure are also delivered via the events wired above.
