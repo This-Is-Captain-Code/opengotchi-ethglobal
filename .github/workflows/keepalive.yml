@@ -1,0 +1,12 @@
+name: keepalive
+# Ping the Render free instance so it doesn't spin down (it only wakes on HTTP,
+# not MQTT — and the devices reach it via MQTT). Keeps the relay connected.
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every ~10 min (GitHub may delay scheduled runs)
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS -m 30 https://opengotchi-server.onrender.com/health || true
