@@ -169,35 +169,54 @@ setInterval(refresh, 2000);
 // then opens Blink's hosted iframe so the user completes the deposit by passkey.
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
 const CHAIN_ID = 8453; // Base mainnet
-let deposit = null; // lazily created on first use (SDK loaded from CDN)
+let deposit = null;    // lazily created on first use (SDK loaded from CDN)
+let displayMessage = (e) => (e && e.message ? e.message : String(e));
+
+const depOut = () => document.getElementById('depResult');
 
 async function getDeposit() {
   if (deposit) return deposit;
   const env = (window.__og && window.__og.blink && window.__og.blink.environment) || 'production';
   const mod = await import('https://esm.sh/@swype-org/deposit');
-  deposit = new mod.Deposit({ signer: '/blink/sign', environment: env });
+  if (mod.getDisplayMessage) displayMessage = mod.getDisplayMessage;
+  deposit = new mod.Deposit({ signer: '/blink/sign', environment: env, debug: true });
+  // Per Blink's checklist: wire events + tear down on unload.
+  deposit
+    .on('status-change', (s) => { const o = depOut(); if (o && deposit.isActive) { o.className = 'result muted'; o.textContent = 'Blink: ' + s + '…'; } })
+    .on('complete', (r) => { const o = depOut(); if (o) { o.className = 'result ok'; o.innerHTML = 'deposited ✓ <span class="muted">' + (r?.transfer?.status || '') + ' ' + short(r?.transfer?.id || '') + '</span>'; } if (window.refresh) window.refresh(); })
+    .on('error', (err) => { const o = depOut(); if (o) { o.className = 'result err'; o.textContent = 'deposit failed: ' + displayMessage(err); } })
+    .on('close', () => { const o = depOut(); if (o && o.textContent.includes('…')) { o.className = 'result muted'; o.textContent = 'cancelled'; } });
+  window.addEventListener('pagehide', () => { try { deposit.destroy(); } catch {} }, { once: true });
   return deposit;
+}
+
+function deviceLabelFor(address) {
+  const d = (window.__og?.devices || []).find((x) => (x.wallet || '').toLowerCase() === (address || '').toLowerCase());
+  return d?.label || 'pet';
 }
 
 const depForm = document.getElementById('depForm');
 if (depForm) depForm.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const btn = document.getElementById('depBtn');
-  const out = document.getElementById('depResult');
+  const out = depOut();
   const address = document.getElementById('depDevice').value;
   const amount = parseFloat(document.getElementById('depAmount').value);
   if (!address) { out.className = 'result err'; out.textContent = 'pick a pet wallet'; return; }
   if (!(amount > 0)) { out.className = 'result err'; out.textContent = 'enter an amount'; return; }
+  const label = deviceLabelFor(address);
   btn.disabled = true; out.className = 'result muted'; out.textContent = 'opening Blink…';
   try {
     const d = await getDeposit();
-    const res = await d.requestDeposit({ amount, chainId: CHAIN_ID, address, token: USDC_BASE });
-    out.className = 'result ok';
-    out.textContent = 'deposit ' + (res && res.status ? res.status : 'completed') + ' ✓';
-    if (window.refresh) window.refresh();
+    // reference/metadata let us correlate the deposit back to a specific pet.
+    await d.requestDeposit({
+      amount, chainId: CHAIN_ID, address, token: USDC_BASE, callbackScheme: null,
+      reference: 'fund-' + label, metadata: { device: label, app: 'opengotchi' },
+    });
+    // success/failure are also delivered via the events wired above.
   } catch (e) {
     out.className = 'result err';
-    out.textContent = 'deposit failed: ' + (e && e.message ? e.message : String(e));
+    out.textContent = 'deposit failed: ' + displayMessage(e);
   }
   btn.disabled = false;
 });
