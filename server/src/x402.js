@@ -30,7 +30,10 @@ export async function payX402(deviceHash, url, options = {}) {
   const res = await f(url, options);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`x402 ${res.status} ${body.slice(0, 80)}`);
+    // The facilitator's verify/settle reason is in the payment-response header (base64).
+    let pr = res.headers.get('payment-response') || res.headers.get('x-payment-response') || '';
+    try { if (pr) pr = Buffer.from(pr, 'base64').toString('utf8'); } catch {}
+    throw new Error(`x402 ${res.status} ${body.slice(0, 60)} | payresp: ${String(pr).slice(0, 220)}`);
   }
   return res;
 }
