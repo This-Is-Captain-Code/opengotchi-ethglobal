@@ -169,6 +169,22 @@ export function startHttp() {
       } catch (e) { return json(res, 500, { error: e.message, stack: (e.stack || '').slice(0, 700) }); }
     }
 
+    // GET /debug/pay?url=...&method=GET&device=tdeck&body=... — pay any x402 URL (test endpoints)
+    if (req.method === 'GET' && url.pathname === '/debug/pay') {
+      const { payX402 } = await import('./x402.js');
+      const target = url.searchParams.get('url');
+      const method = (url.searchParams.get('method') || 'GET').toUpperCase();
+      const fromHash = resolveHash(url.searchParams.get('device') || 'tdeck');
+      if (!target || !fromHash) return json(res, 400, { error: 'need ?url= and a valid device' });
+      const opts = { method };
+      if (method !== 'GET') { opts.headers = { 'content-type': 'application/json' }; opts.body = url.searchParams.get('body') || '{}'; }
+      try {
+        const r = await payX402(fromHash, target, opts);
+        const body = await r.text();
+        return json(res, 200, { ok: true, status: r.status, body: body.slice(0, 600) });
+      } catch (e) { return json(res, 200, { ok: false, error: e.message.slice(0, 400) }); }
+    }
+
     // POST /transit { from } — pay transit402 via x402 for live arrivals
     if (req.method === 'POST' && url.pathname === '/transit') {
       const body = await readBody(req);
