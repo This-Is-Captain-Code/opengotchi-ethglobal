@@ -106,6 +106,32 @@ export function startHttp() {
       return json(res, result.ok ? 200 : 400, result);
     }
 
+    // GET /debug/sign?device=tdeck — verify Dynamic signTypedData recovers (x402 debug)
+    if (req.method === 'GET' && url.pathname === '/debug/sign') {
+      try {
+        const { getViemAccount } = await import('./dynamic.js');
+        const viem = await import('viem');
+        const fromHash = resolveHash(url.searchParams.get('device') || 'tdeck');
+        const account = await getViemAccount(fromHash);
+        if (!account) return json(res, 400, { error: 'no wallet' });
+        const typedData = {
+          domain: { name: 'USD Coin', version: '2', chainId: 8453, verifyingContract: viem.getAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913') },
+          types: { TransferWithAuthorization: [
+            { name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' },
+            { name: 'validAfter', type: 'uint256' }, { name: 'validBefore', type: 'uint256' }, { name: 'nonce', type: 'bytes32' }] },
+          primaryType: 'TransferWithAuthorization',
+          message: { from: account.address, to: viem.getAddress('0x687E3217668DDe7c32478A3F2613750c8Bd505E9'), value: 20000n, validAfter: 0n, validBefore: 9999999999n, nonce: '0x' + '11'.repeat(32) },
+        };
+        const sig = await account.signTypedData(typedData);
+        let recovered = null, recErr = null;
+        try { recovered = await viem.recoverTypedDataAddress({ ...typedData, signature: sig }); } catch (e) { recErr = e.message; }
+        return json(res, 200, {
+          address: account.address, sig, sigLen: sig.length, vByte: sig.slice(-2),
+          recovered, match: !!recovered && recovered.toLowerCase() === account.address.toLowerCase(), recErr,
+        });
+      } catch (e) { return json(res, 500, { error: e.message, stack: (e.stack || '').slice(0, 500) }); }
+    }
+
     // POST /transit { from } — pay transit402 via x402 for live arrivals
     if (req.method === 'POST' && url.pathname === '/transit') {
       const body = await readBody(req);
