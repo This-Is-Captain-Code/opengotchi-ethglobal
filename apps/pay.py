@@ -15,11 +15,9 @@ This app needs NO firmware change — it rides the stock `mqtt` module:
 """
 import display, mqtt, keyboard, touch, system, time, gc
 
-# ── Contacts (edit me) — ENS name OR 0x address the server pays.
-# Using stackchan's wallet 0x for now; swap to "og-stackchan.eth" once that
-# Sepolia ENS name is registered and points at this address. ──
+# ── Contacts: the ENS name IS the identity (no separate label). ──
 CONTACTS = [
-    ("stackchan", "stackchan.captaincode.eth"),
+    "stackchan.captaincode.eth",
 ]
 AMOUNT = "0.00001"   # small — wallets are funded with ~0.0001 testnet ETH
 
@@ -57,14 +55,12 @@ def draw_header():
 def draw_browse():
     display.clear(BK)
     draw_header()
-    y = 30
-    for i, (label, ens) in enumerate(CONTACTS):
-        cell_h = 30
+    y = 40
+    for i, ens in enumerate(CONTACTS):
+        cell_h = 24
         if i == sel:
-            display.rect_filled(4, y - 2, W - 8, cell_h, SEL)
-        # line 1: number + short handle (big)   line 2: full ENS name (small, own line)
-        display.text(10, y, "%d. %s" % (i + 1, label), 1, WH if i == sel else DM)
-        display.text(12, y + 17, ens, 0, CY if i == sel else DM)
+            display.rect_filled(4, y - 5, W - 8, cell_h, SEL)
+        display.text(12, y, "%d.  %s" % (i + 1, ens), 0, WH if i == sel else CY)
         y += cell_h + 6
     display.text(6, H - 12, "1-9 pick   Enter send   swipe down exit", 0, DM)
     display.flush()
@@ -85,7 +81,7 @@ def draw_center(lines, color):
 
 def send_to(idx):
     global state, sent_at, result_ok, result_text
-    label, ens = CONTACTS[idx]
+    ens = CONTACTS[idx]
     if not mqtt.connected():
         state = RESULT
         result_ok = False
@@ -142,7 +138,7 @@ while True:
         if keyboard.click():
             send_to(sel)
         if state == SENDING:
-            draw_center(["Sending to", CONTACTS[sel][1], "..."], YL)
+            draw_center(["Sending to", CONTACTS[sel], "..."], YL)
 
     elif state == SENDING:
         poll_result()
@@ -152,7 +148,7 @@ while True:
             result_text = "timeout"
         if state == RESULT:
             if result_ok:
-                draw_center(["PAID", CONTACTS[sel][0], result_text], GR)
+                draw_center(["PAID", CONTACTS[sel], result_text], GR)
             else:
                 draw_center(["FAILED", result_text], RD)
 
