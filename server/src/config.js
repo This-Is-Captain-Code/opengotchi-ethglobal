@@ -36,6 +36,13 @@ export const config = {
     walletPassword: process.env.WALLET_PASSWORD || '',
     baseSepoliaRpc: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
   },
+  // transit402 demo location (default: Metropolitan Av, Williamsburg). The agent
+  // pays transit402 via x402 (USDC on Base mainnet) for live arrivals here.
+  transit: {
+    lat: parseFloat(process.env.TRANSIT_LAT || '40.7141'),
+    lng: parseFloat(process.env.TRANSIT_LNG || '-73.9513'),
+    place: process.env.TRANSIT_PLACE || 'Metropolitan Av',
+  },
   devices,
 };
 

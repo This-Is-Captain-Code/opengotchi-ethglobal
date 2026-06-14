@@ -12,6 +12,7 @@
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { toAccount } from 'viem/accounts';
 import { config } from './config.js';
 
 const WALLETS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'wallets.json');
@@ -78,6 +79,34 @@ export async function createMissingWallets(devices) {
   }
   _store = s;
   return s;
+}
+
+/**
+ * A viem account backed by a device's Dynamic MPC wallet — delegates signing to
+ * Dynamic. Used by the x402 client (which needs EIP-712 signTypedData) and is a
+ * standard viem account otherwise. Returns null if the device has no wallet.
+ */
+export async function getViemAccount(deviceHash) {
+  const creds = store()[deviceHash];
+  if (!creds) return null;
+  const client = await getClient();
+  const meta = creds.walletMetadata;
+  const shares = creds.externalServerKeyShares;
+  const pw = config.dynamic.walletPassword || undefined;
+  const hx = (s) => (s && s.startsWith('0x') ? s : '0x' + s);
+  return toAccount({
+    address: meta.accountAddress,
+    async signTypedData(typedData) {
+      return hx(await client.signTypedData({ walletMetadata: meta, externalServerKeyShares: shares, typedData, password: pw }));
+    },
+    async signMessage({ message }) {
+      const m = typeof message === 'string' ? message : (message.raw ?? '');
+      return hx(await client.signMessage({ walletMetadata: meta, externalServerKeyShares: shares, message: m, password: pw }));
+    },
+    async signTransaction(tx) {
+      return hx(await client.signTransaction({ walletMetadata: meta, externalServerKeyShares: shares, transaction: tx, password: pw }));
+    },
+  });
 }
 
 export function dynamicWallet(device) {

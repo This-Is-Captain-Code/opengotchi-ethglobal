@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { config, deviceByLabel } from './config.js';
-import { state, events, executePay } from './relay.js';
+import { state, events, executePay, handleTransit } from './relay.js';
 import { publish } from './mqtt.js';
 import { walletFor } from './wallets.js';
 import { getAgentProfile } from './ens.js';
@@ -103,6 +103,15 @@ export function startHttp() {
       const result = await executePay({
         fromHash, recipient: body.to, amount: String(body.amount ?? '0'), source: 'dashboard',
       });
+      return json(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /transit { from } — pay transit402 via x402 for live arrivals
+    if (req.method === 'POST' && url.pathname === '/transit') {
+      const body = await readBody(req);
+      const fromHash = resolveHash(body.from);
+      if (!fromHash) return json(res, 400, { error: 'unknown device "from"' });
+      const result = await handleTransit(fromHash);
       return json(res, result.ok ? 200 : 400, result);
     }
 

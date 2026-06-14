@@ -66,6 +66,13 @@ export function onDeviceMessage(parsed, payload, send) {
         break;
       }
 
+      // Transit command: the device pays transit402 via x402 (USDC) for live
+      // arrivals near the configured location, from its OWN wallet.
+      if (cmdStr === 'transit' || cmdStr.startsWith('transit')) {
+        handleTransit(hash);
+        break;
+      }
+
       // Base bridge: forward any other device-initiated command to the peer.
       const peer = otherDevice(hash);
       console.log(`[relay] ${me.label} -> commands:`, body);
@@ -145,4 +152,35 @@ export async function executePay({ fromHash, recipient, amount, source = 'api' }
   });
   console.log(`[pay] ${me.label} PAID ${amount} -> ${recipient} tx=${res.txHash}${peer ? ` (reacted: ${peer.label})` : ''}`);
   return { ...res, address };
+}
+
+/**
+ * Device pays transit402 via x402 (USDC on Base) for live arrivals near the
+ * configured location, then sends a compact summary back to the device.
+ */
+export async function handleTransit(deviceHash) {
+  const me = deviceByHash.get(deviceHash);
+  if (!me) return { ok: false, error: 'unknown device' };
+  try {
+    const { nearestSubway } = await import('./transit.js');
+    const data = await nearestSubway(deviceHash, config.transit.lat, config.transit.lng, 3);
+    const top = (data.results || [])[0];
+    let msg = 'no trains';
+    if (top) {
+      const arr = (top.arrivals || []).slice(0, 3).map((a) => `${a.line}:${a.minutes}m`).join(' ');
+      msg = `${top.name} | ${arr}`;
+    }
+    publish(me.hash, 'action', { r: 'TRANSIT_OK', t: msg.slice(0, 80) });
+    recordEvent({
+      type: 'transit', source: 'device', from: me.label, place: config.transit.place,
+      station: top?.name || null, arrivals: (top?.arrivals || []).slice(0, 3), ok: true,
+    });
+    console.log(`[transit] ${me.label} paid x402 -> ${msg}`);
+    return { ok: true, station: top?.name, arrivals: top?.arrivals };
+  } catch (e) {
+    console.error('[transit] error:', e.message);
+    publish(me.hash, 'action', { r: 'TRANSIT_ERR', e: e.message.slice(0, 40) });
+    recordEvent({ type: 'transit', source: 'device', from: me.label, ok: false, error: e.message });
+    return { ok: false, error: e.message };
+  }
 }

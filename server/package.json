@@ -14,6 +14,8 @@
   "dependencies": {
     "@dynamic-labs-wallet/core": "^1.0.38",
     "@dynamic-labs-wallet/node-evm": "^1.0.38",
+    "@x402/evm": "^2.15.0",
+    "@x402/fetch": "^2.15.0",
     "dotenv": "^16.4.5",
     "mqtt": "^5.10.1",
     "viem": "^2.21.0"
