@@ -60,7 +60,15 @@ export function startHttp() {
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
       try {
         const html = await readFile(join(PUBLIC_DIR, 'index.html'));
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          // Delegate WebAuthn (passkey) to Blink's hosted iframe — without this the
+          // browser silently blocks the passkey prompt in the cross-origin iframe,
+          // so the "Authorize" step does nothing.
+          'permissions-policy':
+            'publickey-credentials-get=(self "https://pay.blink.cash" "https://pay-sandbox.blink.cash"), ' +
+            'publickey-credentials-create=(self "https://pay.blink.cash" "https://pay-sandbox.blink.cash")',
+        });
         res.end(html);
       } catch {
         json(res, 404, { error: 'dashboard not found' });
