@@ -132,6 +132,43 @@ export function startHttp() {
       } catch (e) { return json(res, 500, { error: e.message, stack: (e.stack || '').slice(0, 500) }); }
     }
 
+    // GET /debug/x402 — full manual x402 flow against transit402 with full visibility
+    if (req.method === 'GET' && url.pathname === '/debug/x402') {
+      try {
+        const { getViemAccount } = await import('./dynamic.js');
+        const { x402Client, x402HTTPClient } = await import('@x402/fetch');
+        const { registerExactEvmScheme } = await import('@x402/evm/exact/client');
+        const signer = await getViemAccount(resolveHash('tdeck'));
+        const client = new x402Client();
+        registerExactEvmScheme(client, { signer });
+        const httpClient = client instanceof x402HTTPClient ? client : new x402HTTPClient(client);
+
+        const turl = 'https://transit402.dev/subway/nearest';
+        const tbody = JSON.stringify({ lat: 40.7141, lng: -73.9513, limit: 3 });
+        const r1 = await fetch(turl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: tbody });
+        const t1 = await r1.text();
+        let parsedBody; try { parsedBody = JSON.parse(t1); } catch {}
+        const pr = httpClient.getPaymentRequiredResponse((n) => r1.headers.get(n), parsedBody);
+        const payload = await client.createPaymentPayload(pr);
+        const payHeaders = httpClient.encodePaymentSignatureHeader(payload);
+        const r2 = await fetch(turl, { method: 'POST', headers: { 'content-type': 'application/json', ...payHeaders }, body: tbody });
+        const t2 = await r2.text();
+        const h2 = {}; r2.headers.forEach((v, k) => { h2[k] = v; });
+        let payResp = h2['payment-response'] || h2['x-payment-response'] || null;
+        try { if (payResp) payResp = Buffer.from(payResp, 'base64').toString('utf8'); } catch {}
+        return json(res, 200, {
+          r1status: r1.status,
+          accepts: pr?.accepts ?? pr,
+          payloadPreview: JSON.stringify(payload, (k, v) => (typeof v === 'bigint' ? v.toString() : v)).slice(0, 400),
+          payHeaderNames: Object.keys(payHeaders),
+          r2status: r2.status,
+          r2body: t2.slice(0, 300),
+          r2headerKeys: Object.keys(h2),
+          payResp,
+        });
+      } catch (e) { return json(res, 500, { error: e.message, stack: (e.stack || '').slice(0, 700) }); }
+    }
+
     // POST /transit { from } — pay transit402 via x402 for live arrivals
     if (req.method === 'POST' && url.pathname === '/transit') {
       const body = await readBody(req);
