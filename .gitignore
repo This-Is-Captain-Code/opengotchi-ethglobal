@@ -7,6 +7,7 @@ npm-debug.log*
 # Secrets — server-side wallet keys live only here, never committed
 **/wallets.json
 *.key
+blink_private.pem
 
 # Editor / OS
 .DS_Store

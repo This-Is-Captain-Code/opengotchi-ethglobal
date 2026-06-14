@@ -10,8 +10,21 @@ import { state, events, executePay, handleMarkets } from './relay.js';
 import { publish } from './mqtt.js';
 import { walletFor } from './wallets.js';
 import { getAgentProfile } from './ens.js';
+import { createSign, randomUUID } from 'node:crypto';
+import { readFileSync, existsSync } from 'node:fs';
 
-const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const SERVER_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
+const PUBLIC_DIR = join(SERVER_DIR, 'public');
+
+// Blink merchant private key: env var (Render) or the gitignored pem (local).
+function blinkPrivateKey() {
+  if (config.blink.privateKeyPem) return config.blink.privateKeyPem;
+  try {
+    const p = join(SERVER_DIR, 'blink_private.pem');
+    if (existsSync(p)) return readFileSync(p, 'utf8');
+  } catch {}
+  return '';
+}
 
 function json(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
@@ -72,7 +85,14 @@ export function startHttp() {
           };
         })
       );
-      return json(res, 200, { broker: config.brokerUrl, walletProvider: config.walletProvider, devices, events });
+      return json(res, 200, {
+        broker: config.brokerUrl, walletProvider: config.walletProvider, devices, events,
+        blink: {
+          configured: !!(config.blink.merchantId && blinkPrivateKey()),
+          merchantId: config.blink.merchantId,
+          environment: config.blink.environment,
+        },
+      });
     }
 
     // GET /devices — config + live state (legacy)
@@ -113,6 +133,34 @@ export function startHttp() {
       if (!fromHash) return json(res, 400, { error: 'unknown device "from"' });
       const result = await handleMarkets(fromHash);
       return json(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /blink/sign — Blink merchant signer: sign a stablecoin deposit request
+    // (deposit USDC into a pet's wallet). Only signs deposits TO our own wallets.
+    if (req.method === 'POST' && url.pathname === '/blink/sign') {
+      const body = await readBody(req);
+      const { amount, chainId, address, token, callbackScheme = null, version = 'v1' } = body;
+      const errs = [];
+      if (!Number.isFinite(amount) || amount <= 0) errs.push('amount must be > 0');
+      if (!Number.isInteger(chainId) || chainId <= 0) errs.push('chainId invalid');
+      if (typeof address !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(address)) errs.push('address invalid');
+      if (typeof token !== 'string' || !/^0x[a-fA-F0-9]{1,40}$/.test(token)) errs.push('token invalid');
+      // Safety: only sign deposits TO one of our own pet wallets.
+      const ours = config.devices.some((d) => (walletFor(d.hash)?.address() || '').toLowerCase() === String(address).toLowerCase());
+      if (!ours) errs.push('address must be a known device wallet');
+      if (errs.length) return json(res, 400, { error: errs.join('; ') });
+
+      const priv = blinkPrivateKey();
+      if (!priv || !config.blink.merchantId) return json(res, 503, { error: 'Blink not configured (set BLINK_MERCHANT_ID + BLINK_PRIVATE_KEY)' });
+
+      const idempotencyKey = randomUUID();
+      const signatureTimestamp = new Date().toISOString();
+      const payloadObj = { amount, chainId, address, token, idempotencyKey, callbackScheme, signatureTimestamp, version };
+      const payload = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64url');
+      const s = createSign('SHA256'); s.update(payload); s.end();
+      const signature = s.sign(priv).toString('base64url');
+      res.setHeader('cache-control', 'no-store');
+      return json(res, 200, { merchantId: config.blink.merchantId, payload, signature, preview: { amount, chainId, address, token, idempotencyKey } });
     }
 
     json(res, 404, { error: 'not found' });

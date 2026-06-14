@@ -60,6 +60,17 @@
     <div class="result" id="payResult"></div>
   </div>
 
+  <div class="card" id="depositCard" hidden>
+    <h2>💵 Deposit USDC <span class="muted" style="font-weight:400">via Blink</span></h2>
+    <div class="kv" style="margin-top:0">Fund a pet's wallet with USDC on Base — paid by passkey, no seed phrase.</div>
+    <form id="depForm">
+      <select id="depDevice"></select>
+      <input id="depAmount" value="1" size="5" /><span class="muted">USD</span>
+      <button id="depBtn" type="submit">Deposit</button>
+    </form>
+    <div class="result" id="depResult"></div>
+  </div>
+
   <div class="card">
     <h2>📜 Activity</h2>
     <ul class="events" id="events"><li class="muted">no activity yet</li></ul>
@@ -105,6 +116,7 @@ function eventRow(e) {
 async function refresh() {
   try {
     const s = await (await fetch('/state')).json();
+    window.__og = s; // shared with the Blink deposit module below
     document.getElementById('provider').textContent = 'wallet: ' + s.walletProvider;
     document.getElementById('broker').textContent = 'broker: ' + s.broker.replace('mqtt://','');
     document.getElementById('devices').innerHTML = s.devices.map(deviceCard).join('');
@@ -114,6 +126,18 @@ async function refresh() {
     }
     const ev = document.getElementById('events');
     ev.innerHTML = s.events.length ? s.events.map(eventRow).join('') : '<li class="muted">no activity yet</li>';
+    // Blink deposit: show the card only when the server has a Blink merchant key.
+    const depCard = document.getElementById('depositCard');
+    const depDev = document.getElementById('depDevice');
+    const fundable = s.devices.filter(d => d.wallet);
+    if (s.blink && s.blink.configured && fundable.length) {
+      depCard.hidden = false;
+      if (depDev.options.length !== fundable.length) {
+        depDev.innerHTML = fundable.map(d => `<option value="${d.wallet}">${d.label} (${short(d.wallet)})</option>`).join('');
+      }
+    } else {
+      depCard.hidden = true;
+    }
   } catch (e) { /* server restarting */ }
 }
 
@@ -138,6 +162,45 @@ document.getElementById('payForm').addEventListener('submit', async (ev) => {
 
 refresh();
 setInterval(refresh, 2000);
+</script>
+
+<script type="module">
+// Blink deposit — passkey-funded USDC. The SDK POSTs our /blink/sign signer,
+// then opens Blink's hosted iframe so the user completes the deposit by passkey.
+const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
+const CHAIN_ID = 8453; // Base mainnet
+let deposit = null; // lazily created on first use (SDK loaded from CDN)
+
+async function getDeposit() {
+  if (deposit) return deposit;
+  const env = (window.__og && window.__og.blink && window.__og.blink.environment) || 'production';
+  const mod = await import('https://esm.sh/@swype-org/deposit');
+  deposit = new mod.Deposit({ signer: '/blink/sign', environment: env });
+  return deposit;
+}
+
+const depForm = document.getElementById('depForm');
+if (depForm) depForm.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = document.getElementById('depBtn');
+  const out = document.getElementById('depResult');
+  const address = document.getElementById('depDevice').value;
+  const amount = parseFloat(document.getElementById('depAmount').value);
+  if (!address) { out.className = 'result err'; out.textContent = 'pick a pet wallet'; return; }
+  if (!(amount > 0)) { out.className = 'result err'; out.textContent = 'enter an amount'; return; }
+  btn.disabled = true; out.className = 'result muted'; out.textContent = 'opening Blink…';
+  try {
+    const d = await getDeposit();
+    const res = await d.requestDeposit({ amount, chainId: CHAIN_ID, address, token: USDC_BASE });
+    out.className = 'result ok';
+    out.textContent = 'deposit ' + (res && res.status ? res.status : 'completed') + ' ✓';
+    if (window.refresh) window.refresh();
+  } catch (e) {
+    out.className = 'result err';
+    out.textContent = 'deposit failed: ' + (e && e.message ? e.message : String(e));
+  }
+  btn.disabled = false;
+});
 </script>
 </body>
 </html>
