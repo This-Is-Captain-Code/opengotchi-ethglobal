@@ -57,25 +57,28 @@ def draw_header():
 def draw_browse():
     display.clear(BK)
     draw_header()
-    y = 32
+    y = 30
     for i, (label, ens) in enumerate(CONTACTS):
+        cell_h = 30
         if i == sel:
-            display.rect_filled(4, y - 3, W - 8, 22, SEL)
-        col = WH if i == sel else DM
-        display.text(10, y, "%d. %s" % (i + 1, label), 1, col)
-        display.text(140, y + 2, ens, 0, CY if i == sel else DM)
-        y += 26
-    display.text(6, H - 12, "1-9 pick  Enter send  swipe down exit", 0, DM)
+            display.rect_filled(4, y - 2, W - 8, cell_h, SEL)
+        # line 1: number + short handle (big)   line 2: full ENS name (small, own line)
+        display.text(10, y, "%d. %s" % (i + 1, label), 1, WH if i == sel else DM)
+        display.text(12, y + 17, ens, 0, CY if i == sel else DM)
+        y += cell_h + 6
+    display.text(6, H - 12, "1-9 pick   Enter send   swipe down exit", 0, DM)
     display.flush()
 
 
 def draw_center(lines, color):
     display.clear(BK)
     draw_header()
-    y = H // 2 - (len(lines) * 12) // 2
+    y = H // 2 - (len(lines) * 16) // 2
     for ln in lines:
-        x = max(4, (W - len(ln) * 8) // 2)
-        display.text(x, y, ln, 1, color)
+        small = len(ln) > 16          # long lines (e.g. the ENS name) shrink to fit
+        cw = 8 if small else 16
+        x = max(4, (W - len(ln) * cw) // 2)
+        display.text(x, y, ln, 0 if small else 1, color)
         y += 22
     display.flush()
 
