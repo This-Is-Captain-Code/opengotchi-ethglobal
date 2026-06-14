@@ -66,10 +66,10 @@ export function onDeviceMessage(parsed, payload, send) {
         break;
       }
 
-      // Transit command: the device pays transit402 via x402 (USDC) for live
-      // arrivals near the configured location, from its OWN wallet.
-      if (cmdStr === 'transit' || cmdStr.startsWith('transit')) {
-        handleTransit(hash);
+      // Markets command: the device pays a standard x402 endpoint (USDC, Base
+      // mainnet) for live crypto prices, from its OWN Dynamic wallet.
+      if (cmdStr === 'markets' || cmdStr.startsWith('markets')) {
+        handleMarkets(hash);
         break;
       }
 
@@ -155,32 +155,29 @@ export async function executePay({ fromHash, recipient, amount, source = 'api' }
 }
 
 /**
- * Device pays transit402 via x402 (USDC on Base) for live arrivals near the
- * configured location, then sends a compact summary back to the device.
+ * Device pays a standard x402 endpoint (USDC on Base mainnet) for live crypto
+ * market prices from its OWN Dynamic wallet, then sends a compact summary back.
  */
-export async function handleTransit(deviceHash) {
+export async function handleMarkets(deviceHash) {
   const me = deviceByHash.get(deviceHash);
   if (!me) return { ok: false, error: 'unknown device' };
   try {
-    const { nearestSubway } = await import('./transit.js');
-    const data = await nearestSubway(deviceHash, config.transit.lat, config.transit.lng, 3);
-    const top = (data.results || [])[0];
-    let msg = 'no trains';
-    if (top) {
-      const arr = (top.arrivals || []).slice(0, 3).map((a) => `${a.line}:${a.minutes}m`).join(' ');
-      msg = `${top.name} | ${arr}`;
-    }
-    publish(me.hash, 'action', { r: 'TRANSIT_OK', t: msg.slice(0, 80) });
+    const { getMarkets } = await import('./markets.js');
+    const data = await getMarkets(deviceHash);
+    const toks = data?.market?.nativePerps?.topTokens || [];
+    const top = toks.slice(0, 3).map((t) => `${t.symbol} $${t.currentPrice}`);
+    const msg = top.length ? top.join('  ') : 'no data';
+    publish(me.hash, 'action', { r: 'MKT_OK', t: msg.slice(0, 80) });
     recordEvent({
-      type: 'transit', source: 'device', from: me.label, place: config.transit.place,
-      station: top?.name || null, arrivals: (top?.arrivals || []).slice(0, 3), ok: true,
+      type: 'markets', source: 'device', from: me.label,
+      top: toks.slice(0, 3).map((t) => ({ s: t.symbol, p: t.currentPrice })), ok: true,
     });
-    console.log(`[transit] ${me.label} paid x402 -> ${msg}`);
-    return { ok: true, station: top?.name, arrivals: top?.arrivals };
+    console.log(`[markets] ${me.label} paid x402 -> ${msg}`);
+    return { ok: true, top };
   } catch (e) {
-    console.error('[transit] error:', e.message);
-    publish(me.hash, 'action', { r: 'TRANSIT_ERR', e: e.message.slice(0, 40) });
-    recordEvent({ type: 'transit', source: 'device', from: me.label, ok: false, error: e.message });
+    console.error('[markets] error:', e.message);
+    publish(me.hash, 'action', { r: 'MKT_ERR', e: e.message.slice(0, 40) });
+    recordEvent({ type: 'markets', source: 'device', from: me.label, ok: false, error: e.message });
     return { ok: false, error: e.message };
   }
 }

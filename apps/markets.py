@@ -1,9 +1,10 @@
 """
-gotchiOS TRANSIT — pay transit402 via x402 for live NYC subway arrivals.
+gotchiOS MARKETS — pay for live crypto prices via x402.
 
-The device sends a `transit` command; the server pays transit402 ($0.02 USDC via
-x402) from THIS device's own wallet and returns the nearest station + arrivals.
-Real-world agentic payment: the pet pays for live data with its onchain wallet.
+The device sends a `markets` command; the server pays a standard x402 endpoint
+($0.001 USDC, Base mainnet) from THIS device's own Dynamic wallet and returns
+live perp prices (BTC/ETH/SOL...). Real agentic payment: the pet buys data with
+its onchain wallet.
 
 Controls:  Enter / trackball-click = fetch    swipe down / long press = exit
 """
@@ -30,7 +31,7 @@ TIMEOUT_MS = 30000
 
 def header():
     display.rect_filled(0, 0, W, 20, SEL)
-    display.text(6, 6, "TRANSIT  (x402)", 0, WH)
+    display.text(6, 6, "MARKETS  (x402)", 0, WH)
     on = mqtt.connected()
     display.text(W - 28, 6, "NET" if on else "OFF", 0, GR if on else RD)
 
@@ -45,7 +46,7 @@ def screen(text_lines, color):
         x = max(4, (W - len(ln) * cw) // 2)
         display.text(x, y, ln, 0 if small else 1, color)
         y += 26
-    display.text(6, H - 12, "Enter = live trains   swipe down = exit", 0, DM)
+    display.text(6, H - 12, "Enter = live prices   swipe down = exit", 0, DM)
     display.flush()
 
 
@@ -54,10 +55,10 @@ def fetch():
     if not mqtt.connected():
         screen(["not connected"], RD)
         return
-    mqtt.send_command("transit")
+    mqtt.send_command("markets")
     state = FETCHING
     sent_at = time.ticks_ms()
-    screen(["Paying x402...", "Metropolitan Av"], YL)
+    screen(["Paying x402...", "for live prices"], YL)
 
 
 def poll():
@@ -66,14 +67,14 @@ def poll():
         line = mqtt.log_read()
         if not line:
             continue
-        if "TRANSIT_OK" in line:
+        if "MKT_OK" in line:
             i = line.find('"t":"')
             msg = line[i + 5:].split('"')[0] if i >= 0 else "ok"
-            lines = msg.split(" | ") if msg else ["ok"]
+            lines = msg.split("  ") if msg else ["ok"]
             col = GR
             state = RESULT
             return
-        if "TRANSIT_ERR" in line:
+        if "MKT_ERR" in line:
             j = line.find('"e":"')
             err = line[j + 5:].split('"')[0] if j >= 0 else "error"
             lines = ["FAILED", err]
@@ -82,7 +83,7 @@ def poll():
             return
 
 
-IDLE_SCREEN = ["Press Enter for", "live subway times", "@ Metropolitan Av"]
+IDLE_SCREEN = ["Press Enter for", "live crypto prices", "(pays $0.001 x402)"]
 screen(IDLE_SCREEN, CY)
 fr = 0
 while True:
